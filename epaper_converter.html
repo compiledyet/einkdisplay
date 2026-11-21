@@ -1,0 +1,1716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CrowPanel E-Paper Image Converter</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;600;700&display=swap');
+
+  :root {
+    --bg: #0a0b0d;
+    --surface: #111318;
+    --surface2: #181c24;
+    --border: #252b38;
+    --border-bright: #3a4458;
+    --accent: #00e5ff;
+    --accent2: #ff6b35;
+    --text: #d0d8e8;
+    --text-dim: #5a6880;
+    --text-muted: #8a96aa;
+    --mono: 'Share Tech Mono', monospace;
+    --sans: 'Barlow', sans-serif;
+    --eink-w: 250px;
+    --eink-h: 122px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-weight: 300;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,229,255,0.015) 2px, rgba(0,229,255,0.015) 4px);
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 18px 32px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: var(--surface);
+  }
+
+  .chip {
+    width: 36px; height: 36px;
+    border: 1.5px solid var(--accent);
+    display: grid;
+    place-items: center;
+    position: relative;
+  }
+  .chip::before, .chip::after {
+    content: '';
+    position: absolute;
+    width: 6px; height: 1.5px;
+    background: var(--accent);
+  }
+  .chip::before { top: 50%; left: -8px; transform: translateY(-50%); }
+  .chip::after { top: 50%; right: -8px; transform: translateY(-50%); }
+  .chip-inner {
+    width: 18px; height: 18px;
+    background: var(--accent);
+    opacity: 0.15;
+    border: 1px solid var(--accent);
+  }
+
+  header h1 {
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  header .subtitle {
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    font-family: var(--mono);
+  }
+
+  .badge {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    letter-spacing: 0.1em;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 0;
+    min-height: calc(100vh - 73px);
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 24px;
+    overflow-y: auto;
+  }
+
+  .main {
+    padding: 28px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  /* Section labels */
+  .section-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* Drop zone */
+  .dropzone {
+    border: 1.5px dashed var(--border-bright);
+    border-radius: 2px;
+    padding: 32px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-bottom: 24px;
+    background: var(--surface2);
+    position: relative;
+    overflow: hidden;
+  }
+  .dropzone::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(0,229,255,0.03) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: var(--accent);
+    background: rgba(0,229,255,0.05);
+  }
+  .dropzone-icon {
+    font-size: 28px;
+    margin-bottom: 10px;
+    opacity: 0.5;
+  }
+  .dropzone p {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+  .dropzone strong { color: var(--accent); font-weight: 600; }
+  #fileInput { display: none; }
+
+  /* Controls */
+  .control-group {
+    margin-bottom: 20px;
+  }
+  .control-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .control-label span {
+    color: var(--accent);
+    font-size: 11px;
+  }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 3px;
+    background: var(--border-bright);
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    background: var(--accent);
+    border-radius: 0;
+    cursor: pointer;
+    border: 2px solid var(--bg);
+  }
+  input[type=range]:focus { outline: none; }
+
+  select {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border-bright);
+    color: var(--text);
+    padding: 8px 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%235a6880' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+  }
+  select:focus { border-color: var(--accent); }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .toggle-row:last-child { border-bottom: none; }
+  .toggle-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+  }
+
+  .toggle {
+    position: relative;
+    width: 36px; height: 18px;
+    cursor: pointer;
+  }
+  .toggle input { display: none; }
+  .toggle-track {
+    position: absolute;
+    inset: 0;
+    background: var(--border-bright);
+    transition: background 0.2s;
+  }
+  .toggle-thumb {
+    position: absolute;
+    width: 12px; height: 12px;
+    top: 3px; left: 3px;
+    background: var(--text-dim);
+    transition: all 0.2s;
+  }
+  .toggle input:checked + .toggle-track { background: rgba(0,229,255,0.3); }
+  .toggle input:checked ~ .toggle-thumb { left: 21px; background: var(--accent); }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    border: none;
+    transition: all 0.15s;
+    text-transform: uppercase;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: var(--bg);
+    font-weight: 700;
+    width: 100%;
+    justify-content: center;
+    margin-top: 4px;
+  }
+  .btn-primary:hover { background: #33eaff; }
+  .btn-primary:disabled { background: var(--border-bright); color: var(--text-dim); cursor: not-allowed; }
+
+  .btn-outline {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border-bright);
+  }
+  .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+
+  .btn-copy {
+    background: var(--surface2);
+    color: var(--accent2);
+    border: 1px solid var(--border-bright);
+    padding: 8px 14px;
+    font-size: 11px;
+  }
+  .btn-copy:hover { border-color: var(--accent2); }
+
+  /* Preview panels */
+  .preview-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  .preview-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 16px;
+  }
+  .preview-panel-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .preview-panel-title .dim { color: var(--text-dim); }
+
+  .canvas-wrapper {
+    background: #1a1a1a;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    min-height: 160px;
+    position: relative;
+  }
+  .canvas-wrapper canvas {
+    max-width: 100%;
+    max-height: 280px;
+    image-rendering: pixelated;
+  }
+
+  .placeholder-text {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    text-align: center;
+  }
+
+  /* Code output */
+  .code-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+  .code-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--surface2);
+  }
+  .code-header-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .code-header-label .dot {
+    width: 6px; height: 6px;
+    background: var(--accent2);
+    border-radius: 50%;
+  }
+  .code-actions { display: flex; gap: 8px; }
+
+  #codeOutput {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: #88c0d0;
+    background: transparent;
+    padding: 16px;
+    max-height: 280px;
+    overflow-y: auto;
+    white-space: pre;
+    line-height: 1.7;
+    word-break: break-all;
+    white-space: pre-wrap;
+  }
+  #codeOutput .kw { color: #81a1c1; }
+  #codeOutput .num { color: #b48ead; }
+  #codeOutput .comment { color: #4c566a; }
+  #codeOutput .str { color: #a3be8c; }
+
+  /* Stats bar */
+  .stats-bar {
+    display: flex;
+    gap: 24px;
+    padding: 12px 16px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .stat-val {
+    font-family: var(--mono);
+    font-size: 16px;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .stat-key {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border-bright); }
+
+  .copy-success {
+    color: #a3be8c !important;
+  }
+
+  .notice {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    border-left: 2px solid var(--accent2);
+    padding: 8px 12px;
+    background: rgba(255,107,53,0.05);
+    line-height: 1.6;
+    margin-top: 8px;
+  }
+
+  .board-hint {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.6;
+    margin-bottom: 12px;
+  }
+  .board-hint strong { color: var(--text-muted); font-weight: 600; }
+
+  .board-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    margin: 10px 0 16px;
+  }
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    transition: all 0.2s;
+  }
+  .status-dot.connected { background: #a3be8c; box-shadow: 0 0 8px #a3be8c; }
+  .status-dot.error { background: #ff4444; box-shadow: 0 0 8px #ff4444; }
+
+  .queue-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 10px 0;
+  }
+  .queue-empty {
+    font-size: 10px;
+    color: var(--text-dim);
+    font-style: italic;
+  }
+  .queue-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+  }
+  .queue-item canvas {
+    width: 28px;
+    height: 56px;
+    image-rendering: pixelated;
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .queue-item-label {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+  }
+  .queue-item-remove {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 4px;
+  }
+  .queue-item-remove:hover { color: #ff4444; }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .preview-row { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+
+  /* Phone layout (Android + USB-OTG use) */
+  @media (max-width: 600px) {
+    header { padding: 14px 16px; flex-wrap: wrap; gap: 12px; }
+    .badge { margin-left: 0; }
+    .sidebar { padding: 16px; }
+    .main { padding: 16px; gap: 16px; }
+    .stats-bar { gap: 14px 20px; }
+    .code-header { flex-wrap: wrap; gap: 8px; }
+    select, .btn { min-height: 44px; }
+    input[type=range] { height: 4px; }
+    input[type=range]::-webkit-slider-thumb { width: 22px; height: 22px; }
+    .dropzone { padding: 24px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="chip"><div class="chip-inner"></div></div>
+  <div>
+    <h1>E-Paper Image Converter</h1>
+    <div class="subtitle">CrowPanel ESP32 2.13" · SSD1680Z / JD79661</div>
+  </div>
+  <div class="badge">122 × 250 · 1BPP · BW</div>
+</header>
+
+<div class="layout">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="section-label">Input</div>
+
+    <div class="dropzone" id="dropzone">
+      <div class="dropzone-icon">⬡</div>
+      <p><strong>Drop image here</strong><br>or click to browse</p>
+      <p style="margin-top:8px; font-size:10px; color: var(--text-dim);">PNG · JPG · GIF · BMP · WebP</p>
+    </div>
+    <input type="file" id="fileInput" accept="image/*">
+
+    <div class="section-label">Processing</div>
+
+    <div class="control-group">
+      <div class="control-label">Dithering Algorithm</div>
+      <select id="ditherMode">
+        <option value="threshold">Threshold (Simple)</option>
+        <option value="floyd" selected>Floyd-Steinberg</option>
+        <option value="ordered">Ordered (Bayer 4×4)</option>
+        <option value="atkinson">Atkinson</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <div class="control-label">Fit Mode</div>
+      <select id="fitMode">
+        <option value="contain" selected>Contain (letterbox)</option>
+        <option value="cover">Cover (crop)</option>
+        <option value="stretch">Stretch (fill)</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <div class="control-label">
+        Threshold <span id="thresholdVal">128</span>
+      </div>
+      <input type="range" id="threshold" min="0" max="255" value="128">
+    </div>
+
+    <div class="control-group">
+      <div class="control-label">
+        Brightness <span id="brightnessVal">0</span>
+      </div>
+      <input type="range" id="brightness" min="-100" max="100" value="0">
+    </div>
+
+    <div class="control-group">
+      <div class="control-label">
+        Contrast <span id="contrastVal">0</span>
+      </div>
+      <input type="range" id="contrast" min="-100" max="100" value="0">
+    </div>
+
+    <div style="margin-bottom: 20px;">
+      <div class="toggle-row">
+        <span class="toggle-label">Invert Colors</span>
+        <label class="toggle">
+          <input type="checkbox" id="invert">
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Rotate Clockwise</span>
+        <button class="btn btn-outline" id="rotateBtn" type="button" style="padding: 6px 14px; font-size: 11px;">
+          ↻ <span id="rotateDeg">0°</span>
+        </button>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Flip Horizontal</span>
+        <label class="toggle">
+          <input type="checkbox" id="flipH">
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+    </div>
+
+    <div class="section-label">Output</div>
+
+    <div class="control-group">
+      <div class="control-label">Array Format</div>
+      <select id="outputFormat">
+        <option value="c_array" selected>C Array (Arduino)</option>
+        <option value="c_progmem">C Array + PROGMEM</option>
+        <option value="raw_hex">Raw Hex Bytes</option>
+        <option value="binary">Binary (download)</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <div class="control-label">Bit Order</div>
+      <select id="bitOrder">
+        <option value="msb" selected>MSB First (standard)</option>
+        <option value="lsb">LSB First</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <div class="control-label">Pixel Polarity</div>
+      <select id="polarity">
+        <option value="0_black">0 = Black, 1 = White</option>
+        <option value="1_black" selected>1 = Black, 0 = White</option>
+      </select>
+    </div>
+
+    <button class="btn btn-primary" id="convertBtn" disabled>
+      ▶ CONVERT IMAGE
+    </button>
+
+    <div class="section-label">Image Queue</div>
+
+    <p class="board-hint">
+      Add converted images to a queue, then push the whole sequence to the board in one go — browse them afterwards with the on-board <strong>UP/DOWN</strong> nav switch.
+    </p>
+
+    <button class="btn btn-outline" id="addToQueueBtn" disabled style="width:100%; justify-content:center;">
+      + ADD TO QUEUE
+    </button>
+    <div class="queue-list" id="queueList"></div>
+    <button class="btn btn-primary" id="sendQueueBtn" disabled>
+      ↑ SEND QUEUE TO BOARD (<span id="queueCount">0</span>)
+    </button>
+
+    <div class="section-label">Board</div>
+
+    <p class="board-hint">
+      Flash <strong>Serial_image_receiver.ino</strong> to the board once — then connect here to push converted images straight to the display over USB, no recompiling needed.
+    </p>
+    <p class="board-hint">
+      <strong>Android:</strong> plug the board into the phone with a USB-C OTG cable and open this page in <strong>Chrome over HTTPS</strong> — it talks to the board's CH9102F chip directly via WebUSB, no app or driver needed.
+    </p>
+
+    <div class="control-group">
+      <div class="control-label">Connection</div>
+      <select id="connMode">
+        <option value="auto" selected>Auto-detect</option>
+        <option value="serial">Web Serial (desktop Chrome / Edge)</option>
+        <option value="usb">WebUSB (Android Chrome · USB-OTG)</option>
+      </select>
+    </div>
+
+    <button class="btn btn-outline" id="connectBtn" style="width:100%; justify-content:center;">
+      ⚡ CONNECT TO BOARD
+    </button>
+    <div class="board-status">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">NOT CONNECTED</span>
+    </div>
+
+    <button class="btn btn-primary" id="uploadBtn" disabled>
+      ↑ SEND TO BOARD
+    </button>
+
+    <div class="notice" id="notice" style="display:none;"></div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="main">
+
+    <!-- Stats -->
+    <div class="stats-bar" id="statsBar">
+      <div class="stat">
+        <div class="stat-val">122</div>
+        <div class="stat-key">Height (px)</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val">250</div>
+        <div class="stat-key">Width (px)</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val" id="statBytes">4000</div>
+        <div class="stat-key">Bytes</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val" id="statBlackPct">—</div>
+        <div class="stat-key">Black %</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val" id="statSrcSize">—</div>
+        <div class="stat-key">Source Size</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val" id="statStatus" style="font-size:11px; color: var(--text-dim);">IDLE</div>
+        <div class="stat-key">Status</div>
+      </div>
+    </div>
+
+    <!-- Preview Row -->
+    <div class="preview-row">
+      <div class="preview-panel">
+        <div class="preview-panel-title">
+          <span>SOURCE IMAGE</span>
+          <span class="dim" id="srcDims">—</span>
+        </div>
+        <div class="canvas-wrapper" id="srcWrapper">
+          <div class="placeholder-text">No image loaded</div>
+        </div>
+      </div>
+
+      <div class="preview-panel">
+        <div class="preview-panel-title">
+          <span>CONVERTED PREVIEW</span>
+          <span class="dim">1BPP · 122×250</span>
+        </div>
+        <div class="canvas-wrapper" id="dstWrapper">
+          <div class="placeholder-text">Convert to preview</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Code Output -->
+    <div class="code-panel">
+      <div class="code-header">
+        <div class="code-header-label">
+          <div class="dot"></div>
+          <span>GENERATED CODE OUTPUT</span>
+        </div>
+        <div class="code-actions">
+          <button class="btn btn-copy" id="copyBtn">⎘ COPY</button>
+          <button class="btn btn-copy" id="downloadBtn" style="color: var(--accent);">↓ DOWNLOAD</button>
+        </div>
+      </div>
+      <pre id="codeOutput"><span style="color:var(--text-dim)">// Convert an image to generate the C array output.
+// The array will be compatible with the CrowPanel ESP32 2.13"
+// e-paper display (SSD1680Z / JD79661 driver).
+//
+// Display specs:
+//   Resolution : 122 (H) × 250 (V) pixels
+//   Colors     : Black &amp; White (1-bit)
+//   Row bytes  : 16 bytes (ceil(122/8), 6 padding bits)
+//   Total      : 4000 bytes
+</span></pre>
+    </div>
+
+  </main>
+</div>
+
+<!-- Hidden canvas for processing -->
+<canvas id="workCanvas" style="display:none;"></canvas>
+
+<script>
+const W = 250, H = 122; // display width × height
+const ROW_BYTES = Math.ceil(W / 8); // 32 bytes per row... wait
+// Actually: display is 122(H) x 250(V)
+// H = horizontal = 122 pixels wide
+// V = vertical   = 250 pixels tall
+// So the image is 122 wide, 250 tall
+// ROW_BYTES = ceil(122/8) = 16 bytes per row
+// Total = 16 * 250 = 4000 bytes
+const IMG_W = 122, IMG_H = 250;
+const RBYTES = Math.ceil(IMG_W / 8); // 16
+
+let sourceImg = null;
+let bitmapData = null;
+let rotationSteps = 0; // 0-3, each step = 90° clockwise
+let imageQueue = [];
+const MAX_QUEUE_IMAGES = 100; // matches MAX_IMAGES in Serial_image_receiver.ino
+
+// UI refs
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const convertBtn = document.getElementById('convertBtn');
+const workCanvas = document.getElementById('workCanvas');
+const codeOutput = document.getElementById('codeOutput');
+const notice = document.getElementById('notice');
+const addToQueueBtn = document.getElementById('addToQueueBtn');
+const queueList = document.getElementById('queueList');
+const queueCount = document.getElementById('queueCount');
+const sendQueueBtn = document.getElementById('sendQueueBtn');
+
+// Drag & drop
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) loadFile(file);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) loadFile(fileInput.files[0]);
+});
+
+// Slider labels
+['threshold','brightness','contrast'].forEach(id => {
+  const el = document.getElementById(id);
+  const lbl = document.getElementById(id + 'Val');
+  el.addEventListener('input', () => { lbl.textContent = el.value; });
+});
+
+// Rotate clockwise: cycles 0° -> 90° -> 180° -> 270° -> 0° on each click
+const rotateBtn = document.getElementById('rotateBtn');
+const rotateDeg = document.getElementById('rotateDeg');
+rotateBtn.addEventListener('click', () => {
+  rotationSteps = (rotationSteps + 1) % 4;
+  rotateDeg.textContent = (rotationSteps * 90) + '°';
+  if (sourceImg && !convertBtn.disabled) convertImage();
+});
+
+// Image queue: collect converted frames here, then push the whole sequence
+// to the board in one go (each frame lands in its own onboard flash slot).
+addToQueueBtn.addEventListener('click', () => {
+  if (!bitmapData || imageQueue.length >= MAX_QUEUE_IMAGES) return;
+  const { mono, bytes, finalW, finalH } = bitmapData;
+  imageQueue.push({ mono, bytes, finalW, finalH });
+  renderQueue();
+  refreshUploadAvailability();
+});
+
+function renderQueue() {
+  queueCount.textContent = imageQueue.length;
+  queueList.innerHTML = '';
+
+  if (imageQueue.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'queue-empty';
+    empty.textContent = 'Queue is empty — convert an image and click "Add to Queue".';
+    queueList.appendChild(empty);
+    return;
+  }
+
+  imageQueue.forEach((item, index) => {
+    const { mono, finalW, finalH } = item;
+
+    const row = document.createElement('div');
+    row.className = 'queue-item';
+
+    const cvs = document.createElement('canvas');
+    cvs.width = finalW; cvs.height = finalH;
+    const ctx = cvs.getContext('2d');
+    const id = ctx.createImageData(finalW, finalH);
+    for (let i = 0; i < mono.length; i++) {
+      const v = mono[i] ? 255 : 0;
+      id.data[i*4] = id.data[i*4+1] = id.data[i*4+2] = v;
+      id.data[i*4+3] = 255;
+    }
+    ctx.putImageData(id, 0, 0);
+    row.appendChild(cvs);
+
+    const label = document.createElement('span');
+    label.className = 'queue-item-label';
+    label.textContent = 'SLOT ' + index + ' · ' + finalW + '×' + finalH;
+    row.appendChild(label);
+
+    const remove = document.createElement('button');
+    remove.className = 'queue-item-remove';
+    remove.textContent = '✕';
+    remove.title = 'Remove from queue';
+    remove.addEventListener('click', () => {
+      imageQueue.splice(index, 1);
+      renderQueue();
+      refreshUploadAvailability();
+    });
+    row.appendChild(remove);
+
+    queueList.appendChild(row);
+  });
+}
+renderQueue();
+
+// Dither mode: show/hide threshold
+document.getElementById('ditherMode').addEventListener('change', function() {
+  document.querySelector('.control-group:has(#threshold)').style.opacity =
+    (this.value === 'threshold') ? '1' : '0.5';
+});
+
+function loadFile(file) {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    sourceImg = img;
+    document.getElementById('statSrcSize').textContent = img.width + '×' + img.height;
+    document.getElementById('srcDims').textContent = img.width + ' × ' + img.height + 'px';
+
+    // Show source preview
+    const srcWrapper = document.getElementById('srcWrapper');
+    srcWrapper.innerHTML = '';
+    const srcCanvas = document.createElement('canvas');
+    srcCanvas.width = img.width;
+    srcCanvas.height = img.height;
+    const ctx = srcCanvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    srcWrapper.appendChild(srcCanvas);
+
+    convertBtn.disabled = false;
+    setStatus('READY');
+    URL.revokeObjectURL(url);
+
+    // Update dropzone
+    dropzone.querySelector('p').innerHTML = '<strong>' + file.name + '</strong>';
+  };
+  img.src = url;
+}
+
+function setStatus(s, color) {
+  const el = document.getElementById('statStatus');
+  el.textContent = s;
+  el.style.color = color || 'var(--accent)';
+}
+
+convertBtn.addEventListener('click', convertImage);
+
+function convertImage() {
+  if (!sourceImg) return;
+  setStatus('PROCESSING...', 'var(--accent2)');
+
+  // Small delay to let UI update
+  setTimeout(() => {
+    try {
+      bitmapData = processImage();
+      renderPreview(bitmapData);
+      generateCode(bitmapData);
+      setStatus('DONE ✓');
+      refreshUploadAvailability();
+    } catch(e) {
+      setStatus('ERROR', '#ff4444');
+      console.error(e);
+    }
+  }, 20);
+}
+
+function processImage() {
+  const fitMode = document.getElementById('fitMode').value;
+  const brightness = parseInt(document.getElementById('brightness').value);
+  const contrast = parseInt(document.getElementById('contrast').value);
+  const invert = document.getElementById('invert').checked;
+  const flipH = document.getElementById('flipH').checked;
+  const ditherMode = document.getElementById('ditherMode').value;
+  const threshold = parseInt(document.getElementById('threshold').value);
+  const bitOrder = document.getElementById('bitOrder').value;
+  const polarity = document.getElementById('polarity').value;
+
+  // Target dimensions (swapped for 90°/270° rotations)
+  const swapped = (rotationSteps % 2) === 1;
+  const tW = swapped ? IMG_H : IMG_W;
+  const tH = swapped ? IMG_W : IMG_H;
+
+  workCanvas.width = tW;
+  workCanvas.height = tH;
+  const ctx = workCanvas.getContext('2d');
+  ctx.clearRect(0, 0, tW, tH);
+
+  // Draw with fit mode
+  const sW = sourceImg.width, sH = sourceImg.height;
+  let dx = 0, dy = 0, dw = tW, dh = tH;
+  let sx = 0, sy = 0, sw = sW, sh = sH;
+
+  if (fitMode === 'contain') {
+    const scale = Math.min(tW / sW, tH / sH);
+    dw = sW * scale; dh = sH * scale;
+    dx = (tW - dw) / 2; dy = (tH - dh) / 2;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, tW, tH);
+  } else if (fitMode === 'cover') {
+    const scale = Math.max(tW / sW, tH / sH);
+    const scaledW = sW * scale, scaledH = sH * scale;
+    dx = (tW - scaledW) / 2; dy = (tH - scaledH) / 2;
+    dw = scaledW; dh = scaledH;
+  }
+
+  ctx.save();
+  if (flipH) { ctx.translate(tW, 0); ctx.scale(-1, 1); }
+  ctx.drawImage(sourceImg, sx, sy, sw, sh, dx, dy, dw, dh);
+  ctx.restore();
+
+  // Get pixel data
+  let imageData = ctx.getImageData(0, 0, tW, tH);
+  let pixels = imageData.data;
+
+  // Apply brightness/contrast
+  for (let i = 0; i < pixels.length; i += 4) {
+    let r = pixels[i], g = pixels[i+1], b = pixels[i+2];
+    // To grayscale
+    let gray = 0.299 * r + 0.587 * g + 0.114 * b;
+    // Brightness
+    gray = gray + brightness;
+    // Contrast
+    const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+    gray = factor * (gray - 128) + 128;
+    gray = Math.max(0, Math.min(255, gray));
+    pixels[i] = pixels[i+1] = pixels[i+2] = gray;
+  }
+
+  // Work with grayscale float array for dithering
+  let gray = new Float32Array(tW * tH);
+  for (let i = 0; i < tW * tH; i++) gray[i] = pixels[i * 4];
+
+  // Apply cumulative rotation (each step = 90° clockwise)
+  if (rotationSteps !== 0) {
+    const rotated = new Float32Array(IMG_W * IMG_H);
+    for (let y = 0; y < tH; y++) {
+      for (let x = 0; x < tW; x++) {
+        let nx, ny;
+        if (rotationSteps === 1) {        // 90° CW
+          nx = tH - 1 - y;
+          ny = x;
+        } else if (rotationSteps === 2) { // 180°
+          nx = tW - 1 - x;
+          ny = tH - 1 - y;
+        } else {                          // 270° CW (90° CCW)
+          nx = y;
+          ny = tW - 1 - x;
+        }
+        rotated[ny * IMG_W + nx] = gray[y * tW + x];
+      }
+    }
+    gray = rotated;
+  }
+
+  // Dithering → 1-bit
+  const finalW = IMG_W, finalH = IMG_H;
+  const mono = new Uint8Array(finalW * finalH); // 1 per pixel: 0=black, 1=white
+
+  if (ditherMode === 'threshold') {
+    for (let i = 0; i < finalW * finalH; i++) {
+      mono[i] = gray[i] >= threshold ? 1 : 0;
+    }
+  } else if (ditherMode === 'floyd') {
+    // Floyd-Steinberg
+    const buf = new Float32Array(gray);
+    for (let y = 0; y < finalH; y++) {
+      for (let x = 0; x < finalW; x++) {
+        const idx = y * finalW + x;
+        const old = buf[idx];
+        const nv = old >= 128 ? 255 : 0;
+        mono[idx] = nv === 255 ? 1 : 0;
+        const err = old - nv;
+        if (x + 1 < finalW) buf[idx + 1] += err * 7 / 16;
+        if (y + 1 < finalH) {
+          if (x - 1 >= 0) buf[idx + finalW - 1] += err * 3 / 16;
+          buf[idx + finalW] += err * 5 / 16;
+          if (x + 1 < finalW) buf[idx + finalW + 1] += err * 1 / 16;
+        }
+      }
+    }
+  } else if (ditherMode === 'ordered') {
+    // Bayer 4x4
+    const bayer = [
+      [ 0, 8, 2,10],
+      [12, 4,14, 6],
+      [ 3,11, 1, 9],
+      [15, 7,13, 5]
+    ];
+    for (let y = 0; y < finalH; y++) {
+      for (let x = 0; x < finalW; x++) {
+        const t = (bayer[y & 3][x & 3] / 16) * 255;
+        mono[y * finalW + x] = gray[y * finalW + x] > t ? 1 : 0;
+      }
+    }
+  } else if (ditherMode === 'atkinson') {
+    const buf = new Float32Array(gray);
+    for (let y = 0; y < finalH; y++) {
+      for (let x = 0; x < finalW; x++) {
+        const idx = y * finalW + x;
+        const old = buf[idx];
+        const nv = old >= 128 ? 255 : 0;
+        mono[idx] = nv === 255 ? 1 : 0;
+        const err = (old - nv) / 8;
+        const neighbors = [
+          [0,1],[0,2],[1,-1],[1,0],[1,1],[2,0]
+        ];
+        for (const [dy, dx] of neighbors) {
+          const ny = y + dy, nx = x + dx;
+          if (nx >= 0 && nx < finalW && ny < finalH) {
+            buf[ny * finalW + nx] += err;
+          }
+        }
+      }
+    }
+  }
+
+  // Apply invert
+  if (invert) {
+    for (let i = 0; i < mono.length; i++) mono[i] ^= 1;
+  }
+
+  // Pack to bytes
+  // mono[i] = 1 means white
+  const blackIs0 = polarity === '0_black';
+  const bytes = new Uint8Array(RBYTES * IMG_H);
+
+  for (let y = 0; y < IMG_H; y++) {
+    for (let byteIdx = 0; byteIdx < RBYTES; byteIdx++) {
+      let b = 0;
+      for (let bit = 0; bit < 8; bit++) {
+        const x = byteIdx * 8 + bit;
+        let pix = (x < IMG_W) ? mono[y * IMG_W + x] : 1; // padding = white
+        if (!blackIs0) pix ^= 1; // invert polarity
+        if (bitOrder === 'msb') {
+          b |= (pix << (7 - bit));
+        } else {
+          b |= (pix << bit);
+        }
+      }
+      bytes[y * RBYTES + byteIdx] = b;
+    }
+  }
+
+  // Count black pixels
+  let blackCount = 0;
+  for (let i = 0; i < mono.length; i++) if (mono[i] === 0) blackCount++;
+  const blackPct = ((blackCount / mono.length) * 100).toFixed(1);
+  document.getElementById('statBlackPct').textContent = blackPct + '%';
+  document.getElementById('statBytes').textContent = bytes.length;
+
+  return { bytes, mono, finalW, finalH };
+}
+
+function renderPreview(data) {
+  const { mono, finalW, finalH } = data;
+
+  // Converted preview
+  const dstWrapper = document.getElementById('dstWrapper');
+  dstWrapper.innerHTML = '';
+  const cvs = document.createElement('canvas');
+  cvs.width = finalW; cvs.height = finalH;
+  const ctx = cvs.getContext('2d');
+  const id = ctx.createImageData(finalW, finalH);
+  for (let i = 0; i < mono.length; i++) {
+    const v = mono[i] ? 255 : 0;
+    id.data[i*4] = id.data[i*4+1] = id.data[i*4+2] = v;
+    id.data[i*4+3] = 255;
+  }
+  ctx.putImageData(id, 0, 0);
+  dstWrapper.appendChild(cvs);
+}
+
+function generateCode(data) {
+  const { bytes } = data;
+  const fmt = document.getElementById('outputFormat').value;
+
+  if (fmt === 'binary') {
+    const blob = new Blob([bytes], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'epaper_bitmap.bin'; a.click();
+    URL.revokeObjectURL(url);
+    showNotice('Binary file downloaded: epaper_bitmap.bin');
+    return;
+  }
+
+  const polarity = document.getElementById('polarity').value;
+  const bitOrder = document.getElementById('bitOrder').value;
+  const dither = document.getElementById('ditherMode').value;
+
+  let code = '';
+
+  const header = `// CrowPanel ESP32 2.13" E-Paper Bitmap
+// Resolution : ${IMG_W} (H) x ${IMG_H} (V)
+// Row bytes  : ${RBYTES} bytes (ceil(${IMG_W}/8))
+// Total bytes: ${bytes.length}
+// Polarity   : ${polarity}
+// Bit order  : ${bitOrder.toUpperCase()}
+// Dithering  : ${dither}
+// Generated  : ${new Date().toISOString().slice(0,19).replace('T',' ')}
+`;
+
+  if (fmt === 'c_array' || fmt === 'c_progmem') {
+    const progmem = fmt === 'c_progmem' ? ' PROGMEM' : '';
+    code = header + `\nconst uint8_t${progmem} epaper_bitmap[${bytes.length}] = {\n`;
+    const rows = [];
+    for (let y = 0; y < IMG_H; y++) {
+      const rowBytes = [];
+      for (let b = 0; b < RBYTES; b++) {
+        rowBytes.push('0x' + bytes[y * RBYTES + b].toString(16).padStart(2, '0').toUpperCase());
+      }
+      rows.push('  ' + rowBytes.join(', '));
+    }
+    code += rows.join(',\n');
+    code += '\n};\n';
+    if (fmt === 'c_progmem') {
+      code += '\n// Usage example:\n// epd.DisplayBitmap(epaper_bitmap, 0, 0, ' + IMG_W + ', ' + IMG_H + ');';
+    }
+  } else if (fmt === 'raw_hex') {
+    code = header + '\n';
+    const chunks = [];
+    for (let i = 0; i < bytes.length; i += 16) {
+      const row = [];
+      for (let j = i; j < Math.min(i + 16, bytes.length); j++) {
+        row.push(bytes[j].toString(16).padStart(2, '0').toUpperCase());
+      }
+      chunks.push(row.join(' '));
+    }
+    code += chunks.join('\n');
+  }
+
+  codeOutput.textContent = code;
+  showNotice(`Array generated: ${bytes.length} bytes · ${RBYTES} bytes/row`);
+}
+
+function showNotice(msg) {
+  notice.style.display = 'block';
+  notice.textContent = '⚡ ' + msg;
+}
+
+document.getElementById('copyBtn').addEventListener('click', () => {
+  const text = codeOutput.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copyBtn');
+    btn.textContent = '✓ COPIED';
+    btn.classList.add('copy-success');
+    setTimeout(() => { btn.textContent = '⎘ COPY'; btn.classList.remove('copy-success'); }, 2000);
+  });
+});
+
+document.getElementById('downloadBtn').addEventListener('click', () => {
+  if (!bitmapData) return;
+  const fmt = document.getElementById('outputFormat').value;
+  if (fmt === 'binary') { generateCode(bitmapData); return; }
+  const text = codeOutput.textContent;
+  const ext = fmt.startsWith('c') ? '.h' : '.txt';
+  const blob = new Blob([text], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'epaper_bitmap' + ext; a.click();
+  URL.revokeObjectURL(url);
+});
+
+// Auto-convert on settings change if image loaded
+const autoInputs = ['ditherMode','fitMode','threshold','brightness','contrast','invert','flipH','bitOrder','polarity','outputFormat'];
+autoInputs.forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    if (sourceImg && !convertBtn.disabled) convertImage();
+  });
+});
+['brightness','contrast','threshold'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    if (sourceImg && bitmapData) {
+      clearTimeout(window._debounce);
+      window._debounce = setTimeout(convertImage, 300);
+    }
+  });
+});
+
+/* ---------- Board connection ----------
+   Talks to the Serial_image_receiver.ino companion sketch over one of two
+   browser transports — the wire protocol is identical for both:
+     host  -> board : "CPEP" sync bytes + slot + total + raw bitmap bytes
+     board -> host  : "OK\n" once the frame is stored/drawn, "ERR\n" on failure
+
+   1. Web Serial (navigator.serial) — desktop Chrome/Edge. The OS USB-serial
+      driver (CH343SER on Windows) owns the chip and exposes a COM port.
+   2. WebUSB (navigator.usb) — Android Chrome over a USB-OTG cable. Android has
+      no USB-serial driver for the board's WCH CH9102F (VID 1A86 / PID 7522),
+      so this page drives the chip itself: CH34x vendor control transfers set
+      115200 8N1, then raw bytes go over the bulk endpoints. Generic CDC-ACM
+      devices (e.g. ESP32-S3 native USB) are also handled.
+   Both need a secure context (https:// or localhost), so on a phone the page
+   must be served over HTTPS rather than opened from a local file.
+
+   Baud rate must match Serial.begin() in the sketch (115200). */
+const BOARD_BAUD_RATE = 115200;
+const SYNC_MAGIC = new Uint8Array([0x43, 0x50, 0x45, 0x50]); // "CPEP"
+const CONNECT_LABEL = '⚡ CONNECT TO BOARD';
+
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
+const HAS_WEB_SERIAL = 'serial' in navigator;
+const HAS_WEB_USB = 'usb' in navigator;
+
+// Devices offered in the WebUSB picker.
+const USB_FILTERS = [
+  { vendorId: 0x1a86 }, // WCH CH340/CH341/CH9102 (CrowPanel 2.13" uses CH9102F, PID 0x7522)
+  { vendorId: 0x303a }, // Espressif native USB (CDC-ACM)
+  { classCode: 0x02 },  // any other CDC-ACM serial device
+];
+
+// Active link: { kind, label, device?, write(bytes) -> Promise, close() -> Promise }
+let boardLink = null;
+// Text received from the board, filled by each link's background read pump.
+let rxText = '';
+const rxDecoder = new TextDecoder();
+
+const connectBtn = document.getElementById('connectBtn');
+const uploadBtn = document.getElementById('uploadBtn');
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+const connModeSel = document.getElementById('connMode');
+
+function onBoardBytes(chunk) {
+  rxText += rxDecoder.decode(chunk, { stream: true });
+  if (rxText.length > 8192) rxText = rxText.slice(-1024); // never grows unbounded
+}
+
+// Grey out connection modes this browser can't do.
+connModeSel.querySelector('option[value="serial"]').disabled = !HAS_WEB_SERIAL;
+connModeSel.querySelector('option[value="usb"]').disabled = !HAS_WEB_USB;
+
+if (HAS_WEB_SERIAL || HAS_WEB_USB) {
+  connectBtn.addEventListener('click', () => {
+    boardLink ? disconnectBoard() : connectBoard();
+  });
+  if (HAS_WEB_USB) {
+    navigator.usb.addEventListener('disconnect', e => {
+      if (boardLink && boardLink.device === e.device) handleLinkLost();
+    });
+  }
+} else {
+  connectBtn.disabled = true;
+  connModeSel.disabled = true;
+  connectBtn.textContent = '⚠ USB ACCESS UNAVAILABLE';
+  setBoardStatus('UNSUPPORTED BROWSER', false, true);
+  if (!window.isSecureContext) {
+    showNotice('This page was not opened over HTTPS, so the browser hides its USB APIs. Serve it from an https:// address (or localhost) to connect to the board.');
+  } else if (IS_ANDROID) {
+    showNotice('WebUSB is not available in this browser — open this page in Chrome for Android to connect to the board over a USB-OTG cable.');
+  } else {
+    showNotice('Web Serial / WebUSB not available — open this page in Chrome or Edge to connect to the board over USB.');
+  }
+}
+
+uploadBtn.addEventListener('click', uploadToBoard);
+sendQueueBtn.addEventListener('click', uploadQueueToBoard);
+
+// "auto": WebUSB on Android (Web Serial there only reaches Bluetooth ports),
+// Web Serial everywhere else (on desktop the OS driver owns the chip, so
+// WebUSB can't claim it).
+function pickTransport() {
+  const choice = connModeSel.value;
+  if (choice === 'serial') return HAS_WEB_SERIAL ? 'serial' : null;
+  if (choice === 'usb') return HAS_WEB_USB ? 'usb' : null;
+  if (IS_ANDROID && HAS_WEB_USB) return 'usb';
+  if (HAS_WEB_SERIAL) return 'serial';
+  if (HAS_WEB_USB) return 'usb';
+  return null;
+}
+
+async function connectBoard() {
+  const transport = pickTransport();
+  if (!transport) {
+    showNotice('The selected connection type is not supported by this browser.');
+    return;
+  }
+  connectBtn.disabled = true;
+  try {
+    rxText = '';
+    boardLink = transport === 'usb' ? await openWebUsbLink() : await openWebSerialLink();
+    setBoardStatus('CONNECTED · ' + boardLink.label + ' · ' + BOARD_BAUD_RATE, true);
+    connectBtn.textContent = '⏻ DISCONNECT';
+    connModeSel.disabled = true;
+    showNotice('Board connected (' + boardLink.label + '). Make sure Serial_image_receiver.ino is flashed, then hit "Send to Board" after converting an image.');
+  } catch (e) {
+    boardLink = null;
+    if (e.name !== 'NotFoundError') { // user simply closed the device picker
+      console.error(e);
+      setBoardStatus('CONNECTION FAILED', false, true);
+      let msg = 'Could not open the board: ' + e.message;
+      if (transport === 'usb' && /claim|access|busy/i.test(e.message)) {
+        msg += ' — another app (e.g. a serial terminal app) may be holding the USB device. Close it, unplug/replug the board and try again.';
+      }
+      showNotice(msg);
+    }
+  } finally {
+    connectBtn.disabled = false;
+  }
+  refreshUploadAvailability();
+}
+
+async function disconnectBoard() {
+  const link = boardLink;
+  boardLink = null;
+  if (link) await link.close().catch(() => {});
+  setBoardStatus('NOT CONNECTED', false);
+  connectBtn.textContent = CONNECT_LABEL;
+  connModeSel.disabled = false;
+  refreshUploadAvailability();
+}
+
+// Cable pulled / device vanished while connected.
+function handleLinkLost() {
+  if (!boardLink) return;
+  const link = boardLink;
+  boardLink = null;
+  link.close().catch(() => {});
+  setBoardStatus('DISCONNECTED', false);
+  connectBtn.textContent = CONNECT_LABEL;
+  connModeSel.disabled = false;
+  refreshUploadAvailability();
+}
+
+// --- Transport 1: Web Serial ---
+async function openWebSerialLink() {
+  const port = await navigator.serial.requestPort();
+  await port.open({ baudRate: BOARD_BAUD_RATE });
+  const writer = port.writable.getWriter();
+  const reader = port.readable.getReader();
+  let closed = false;
+
+  (async () => {
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value) onBoardBytes(value);
+      }
+    } catch (e) { /* port lost */ }
+    if (!closed) handleLinkLost();
+  })();
+
+  return {
+    kind: 'serial',
+    label: 'WEB SERIAL',
+    write: bytes => writer.write(bytes),
+    async close() {
+      closed = true;
+      try { await reader.cancel(); } catch (e) {}
+      try { reader.releaseLock(); } catch (e) {}
+      try { writer.releaseLock(); } catch (e) {}
+      try { await port.close(); } catch (e) {}
+    }
+  };
+}
+
+// --- Transport 2: WebUSB (Android) ---
+async function openWebUsbLink() {
+  const device = await navigator.usb.requestDevice({ filters: USB_FILTERS });
+  try {
+    await device.open();
+    if (device.configuration === null) await device.selectConfiguration(1);
+    const interfaces = device.configuration.interfaces;
+
+    // Data interface = the one with a bulk IN + bulk OUT endpoint pair.
+    let dataIface = null, dataAlt = null, epIn = null, epOut = null;
+    for (const iface of interfaces) {
+      for (const alt of iface.alternates) {
+        const i = alt.endpoints.find(e => e.type === 'bulk' && e.direction === 'in');
+        const o = alt.endpoints.find(e => e.type === 'bulk' && e.direction === 'out');
+        if (i && o) { dataIface = iface; dataAlt = alt; epIn = i; epOut = o; break; }
+      }
+      if (dataIface) break;
+    }
+    if (!dataIface) throw new Error('No bulk serial endpoints found on this USB device.');
+
+    const commIface = interfaces.find(i => i.alternates[0].interfaceClass === 0x02);
+    const isCdc = !!commIface || dataAlt.interfaceClass === 0x0A;
+    const isWch = !isCdc && device.vendorId === 0x1a86;
+    if (!isCdc && !isWch) throw new Error('Unsupported USB-serial chip (VID ' + device.vendorId.toString(16).toUpperCase().padStart(4, '0') + ').');
+
+    if (commIface) await device.claimInterface(commIface.interfaceNumber);
+    await device.claimInterface(dataIface.interfaceNumber);
+    if (dataAlt.alternateSetting !== 0) {
+      await device.selectAlternateInterface(dataIface.interfaceNumber, dataAlt.alternateSetting);
+    }
+
+    if (isWch) await initCh34x(device);
+    else await initCdcAcm(device, (commIface || dataIface).interfaceNumber);
+
+    let closed = false;
+    const readLen = Math.max(64, epIn.packetSize || 64);
+    (async () => {
+      while (!closed) {
+        try {
+          const r = await device.transferIn(epIn.endpointNumber, readLen);
+          if (r.status === 'stall') { await device.clearHalt('in', epIn.endpointNumber); continue; }
+          if (r.data && r.data.byteLength) {
+            onBoardBytes(new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength));
+          }
+        } catch (e) { break; } // device closed or unplugged
+      }
+      if (!closed) handleLinkLost();
+    })();
+
+    const USB_CHUNK = 2048;
+    return {
+      kind: 'usb',
+      label: isWch ? 'WEBUSB CH34x' : 'WEBUSB CDC',
+      device,
+      async write(bytes) {
+        for (let off = 0; off < bytes.length; off += USB_CHUNK) {
+          const r = await device.transferOut(epOut.endpointNumber, bytes.subarray(off, off + USB_CHUNK));
+          if (r.status !== 'ok') throw new Error('USB write ' + r.status);
+        }
+      },
+      async close() {
+        closed = true;
+        try { await device.releaseInterface(dataIface.interfaceNumber); } catch (e) {}
+        if (commIface) { try { await device.releaseInterface(commIface.interfaceNumber); } catch (e) {} }
+        try { await device.close(); } catch (e) {}
+      }
+    };
+  } catch (e) {
+    try { await device.close(); } catch (_) {}
+    throw e;
+  }
+}
+
+// WCH CH340/CH341/CH9102 init — same vendor requests as Linux drivers/usb/serial/ch341.c.
+async function initCh34x(device) {
+  const vendorOut = (request, value, index) =>
+    device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request, value, index });
+  const verRes = await device.controlTransferIn({ requestType: 'vendor', recipient: 'device', request: 0x5F, value: 0, index: 0 }, 2);
+  const version = (verRes.data && verRes.data.byteLength) ? verRes.data.getUint8(0) : 0;
+
+  await vendorOut(0xA1, 0, 0); // serial init
+  // Baud 115200: factor = 0x10000 - 1532620800/115200 = 0xCC08, prescaler 3 -> 0xCC03.
+  // Bit 7 = "send immediately" (don't wait for a full 32-byte packet) on chips newer than v0x27.
+  if (BOARD_BAUD_RATE !== 115200) throw new Error('CH34x divisor is only precomputed for 115200 baud.');
+  await vendorOut(0x9A, 0x1312, version > 0x27 ? 0xCC83 : 0xCC03);
+  if (version >= 0x30) await vendorOut(0x9A, 0x2518, 0x00C3); // LCR: 8N1, RX+TX enabled
+  // Modem control (active-low bits): keep DTR and RTS both de-asserted so the
+  // ESP32 auto-program circuit never pulses EN/IO0 — connecting won't reset the board.
+  await vendorOut(0xA4, 0xFFFF, 0);
+}
+
+// Standard CDC-ACM: SET_LINE_CODING 115200 8N1, then DTR on / RTS off.
+async function initCdcAcm(device, ifaceNum) {
+  const lineCoding = new Uint8Array(7);
+  new DataView(lineCoding.buffer).setUint32(0, BOARD_BAUD_RATE, true);
+  lineCoding[4] = 0; // 1 stop bit
+  lineCoding[5] = 0; // no parity
+  lineCoding[6] = 8; // 8 data bits
+  try {
+    await device.controlTransferOut({ requestType: 'class', recipient: 'interface', request: 0x20, value: 0, index: ifaceNum }, lineCoding);
+    await device.controlTransferOut({ requestType: 'class', recipient: 'interface', request: 0x22, value: 0x01, index: ifaceNum });
+  } catch (e) {
+    console.warn('CDC line setup failed (continuing):', e); // native-USB devices often ignore these
+  }
+}
+
+function setBoardStatus(text, connected, isError) {
+  statusText.textContent = text;
+  statusDot.classList.toggle('connected', !!connected);
+  statusDot.classList.toggle('error', !!isError);
+}
+
+function refreshUploadAvailability() {
+  uploadBtn.disabled = !(boardLink && bitmapData);
+  addToQueueBtn.disabled = !bitmapData || imageQueue.length >= MAX_QUEUE_IMAGES;
+  sendQueueBtn.disabled = !(boardLink && imageQueue.length > 0);
+}
+
+// Connecting can reset the board (DTR toggling on port open is common with
+// ESP32 auto-program circuits) and the receiver spends several seconds in
+// setup() doing a full-panel refresh before loop() is reading Serial. Rather
+// than guess the exact boot delay, resend the frame a few times — the magic
+// scan on the board resyncs past stray bytes, so repeated sends are harmless
+// and one of them will land once the board is actually listening.
+const UPLOAD_MAX_ATTEMPTS = 3;
+const UPLOAD_REPLY_TIMEOUT_MS = 4000;
+const UPLOAD_RETRY_DELAY_MS = 600;
+
+// Builds a wire frame: "CPEP" sync bytes + slot index + total image count + bitmap.
+// `slot`/`total` let the board store each frame in its own onboard flash slot
+// (see the protocol comment atop Serial_image_receiver.ino).
+function buildFramePayload(slot, total, bytes) {
+  const payload = new Uint8Array(SYNC_MAGIC.length + 2 + bytes.length);
+  payload.set(SYNC_MAGIC, 0);
+  payload[SYNC_MAGIC.length] = slot;
+  payload[SYNC_MAGIC.length + 1] = total;
+  payload.set(bytes, SYNC_MAGIC.length + 2);
+  return payload;
+}
+
+// Sends `payload`, retrying up to UPLOAD_MAX_ATTEMPTS times until the board
+// replies "OK". `onAttempt(attempt)` fires before each send so the caller can
+// update its button label. Returns { ok, reply }.
+async function sendFrameWithRetry(payload, onAttempt) {
+  let reply = '';
+  rxText = ''; // drop any stale bytes (boot log etc.) before this frame
+  for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt++) {
+    if (onAttempt) onAttempt(attempt);
+    await boardLink.write(payload);
+    reply = await readBoardReply(UPLOAD_REPLY_TIMEOUT_MS);
+    if (/OK/.test(reply)) return { ok: true, reply };
+    if (reply) return { ok: false, reply };
+    if (attempt < UPLOAD_MAX_ATTEMPTS) {
+      await new Promise(resolve => setTimeout(resolve, UPLOAD_RETRY_DELAY_MS));
+    }
+  }
+  return { ok: false, reply: '' };
+}
+
+async function uploadToBoard() {
+  if (!bitmapData || !boardLink) return;
+
+  const { bytes } = bitmapData;
+  const payload = buildFramePayload(0, 1, bytes);
+
+  const originalLabel = uploadBtn.textContent;
+  uploadBtn.disabled = true;
+  try {
+    const { ok, reply } = await sendFrameWithRetry(payload, attempt => {
+      uploadBtn.textContent = UPLOAD_MAX_ATTEMPTS > 1
+        ? `↑ SENDING (${attempt}/${UPLOAD_MAX_ATTEMPTS})...`
+        : '↑ SENDING...';
+    });
+    if (ok) {
+      showNotice('Image sent to board (' + bytes.length + ' bytes) — display should redraw shortly.');
+    } else if (reply) {
+      showNotice('Board responded "' + reply.trim() + '" — the payload may not have arrived cleanly. Try again.');
+    } else {
+      showNotice('No response from board after ' + UPLOAD_MAX_ATTEMPTS + ' attempts. Confirm Serial_image_receiver.ino is flashed and running, then reconnect.');
+    }
+  } catch (e) {
+    console.error(e);
+    showNotice('Upload failed: ' + e.message);
+  } finally {
+    uploadBtn.textContent = originalLabel;
+    refreshUploadAvailability();
+  }
+}
+
+// Pushes the whole queue to the board, one frame per onboard flash slot, so
+// it can be browsed afterwards with the on-board UP/DOWN nav switch.
+async function uploadQueueToBoard() {
+  if (imageQueue.length === 0 || !boardLink) return;
+
+  const total = imageQueue.length;
+  const originalLabel = sendQueueBtn.textContent;
+  sendQueueBtn.disabled = true;
+  try {
+    for (let slot = 0; slot < total; slot++) {
+      const payload = buildFramePayload(slot, total, imageQueue[slot].bytes);
+      const { ok, reply } = await sendFrameWithRetry(payload, attempt => {
+        sendQueueBtn.textContent = UPLOAD_MAX_ATTEMPTS > 1
+          ? `↑ SENDING ${slot + 1}/${total} (${attempt}/${UPLOAD_MAX_ATTEMPTS})...`
+          : `↑ SENDING ${slot + 1}/${total}...`;
+      });
+      if (!ok) {
+        if (reply) {
+          showNotice('Board responded "' + reply.trim() + '" on image ' + (slot + 1) + ' of ' + total + ' — stopping. Try again.');
+        } else {
+          showNotice('No response from board while sending image ' + (slot + 1) + ' of ' + total + ' after ' + UPLOAD_MAX_ATTEMPTS + ' attempts. Confirm Serial_image_receiver.ino is flashed and running, then reconnect.');
+        }
+        return;
+      }
+    }
+    showNotice('Sent ' + total + ' image' + (total === 1 ? '' : 's') + ' to the board — browse them with the on-board UP/DOWN nav switch.');
+  } catch (e) {
+    console.error(e);
+    showNotice('Queue upload failed: ' + e.message);
+  } finally {
+    sendQueueBtn.textContent = originalLabel;
+    refreshUploadAvailability();
+  }
+}
+
+// Waits for an "OK" or "ERR" line from the board (filled into rxText by the
+// active link's read pump), skipping any other lines such as ESP32 boot-ROM
+// output. Returns the reply line, or '' if the timeout elapses first.
+async function readBoardReply(timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline && boardLink) {
+    let nl;
+    while ((nl = rxText.indexOf('\n')) !== -1) {
+      const line = rxText.slice(0, nl).trim();
+      rxText = rxText.slice(nl + 1);
+      if (line.endsWith('OK')) return 'OK\n';
+      if (line.endsWith('ERR')) return 'ERR\n';
+    }
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  return '';
+}
+</script>
+</body>
+</html>
